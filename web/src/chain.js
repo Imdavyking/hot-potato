@@ -21,7 +21,7 @@ export const CFG = {
   ],
 };
 
-export async function view(method, args = {}) {
+export async function view(method, args = {}, account = CFG.contract) {
   let last;
   for (const url of CFG.rpcs) {
     try {
@@ -35,7 +35,7 @@ export async function view(method, args = {}) {
           params: {
             request_type: "call_function",
             finality: "optimistic",
-            account_id: CFG.contract,
+            account_id: account,
             method_name: method,
             args_base64: btoa(JSON.stringify(args)),
           },
@@ -73,19 +73,71 @@ export async function initWallet() {
   return { selector, modal };
 }
 
-export async function call(selector, method, args = {}, deposit = "0") {
+export async function call(
+  selector,
+  method,
+  args = {},
+  deposit = "0",
+  receiverId = CFG.contract,
+  gas = "100000000000000",
+) {
   const wallet = await selector.wallet();
   // Wallet Selector v10 wallets expect near-api-js (NAJ) actions,
   // not the legacy { type, params } shape.
   return wallet.signAndSendTransaction({
-    receiverId: CFG.contract,
+    receiverId,
     actions: [
-      actionCreators.functionCall(
-        method,
-        args,
-        BigInt("100000000000000"),
-        BigInt(deposit),
-      ),
+      actionCreators.functionCall(method, args, BigInt(gas), BigInt(deposit)),
     ],
   });
 }
+
+// ---- Sputnik DAO (v2) helpers ----
+const dao = (method, args = {}) => view(method, args, CFG.dao);
+
+export const daoPolicy = () => dao("get_policy");
+
+export async function daoProposals(limit = 6) {
+  const last = await dao("get_last_proposal_id");
+  if (!last) return [];
+  const from = Math.max(0, last - limit);
+  const list = await dao("get_proposals", { from_index: from, limit });
+  return list.sort((a, b) => b.id - a.id);
+}
+
+// Propose that the DAO sends `amount` SPUD (in yocto) from its treasury.
+export function proposeSpend(
+  selector,
+  { description, receiver, amountYocto, bond },
+) {
+  return call(
+    selector,
+    "add_proposal",
+    {
+      proposal: {
+        description,
+        kind: {
+          Transfer: {
+            token_id: CFG.contract,
+            receiver_id: receiver,
+            amount: amountYocto,
+          },
+        },
+      },
+    },
+    bond,
+    CFG.dao,
+    "100000000000000",
+  );
+}
+
+// action: "VoteApprove" | "VoteReject" | "VoteRemove"
+export const voteProposal = (selector, id, action) =>
+  call(
+    selector,
+    "act_proposal",
+    { id, action },
+    "0",
+    CFG.dao,
+    "200000000000000",
+  );
