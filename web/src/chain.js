@@ -131,6 +131,33 @@ export function proposeSpend(
   );
 }
 
+// Propose adding `member` to a DAO role (default: the voting council).
+// Anyone can submit this (the "all" role has *:AddProposal); the council
+// must then approve it before the member is actually added.
+export function proposeAddMember(
+  selector,
+  { description, member, role = "council", bond },
+) {
+  return call(
+    selector,
+    "add_proposal",
+    {
+      proposal: {
+        description,
+        kind: {
+          AddMemberToRole: {
+            member_id: member,
+            role,
+          },
+        },
+      },
+    },
+    bond,
+    CFG.dao,
+    "100000000000000",
+  );
+}
+
 // action: "VoteApprove" | "VoteReject" | "VoteRemove"
 export const voteProposal = (selector, id, action) =>
   call(

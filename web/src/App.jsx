@@ -8,6 +8,7 @@ import {
   daoPolicy,
   daoProposals,
   proposeSpend,
+  proposeAddMember,
   voteProposal,
 } from "./chain";
 
@@ -56,6 +57,8 @@ const statusColor = {
 const kindText = (k) => {
   if (k?.Transfer)
     return `Send ${fmt(k.Transfer.amount)} SPUD to ${short(k.Transfer.receiver_id)}`;
+  if (k?.AddMemberToRole)
+    return `Add ${short(k.AddMemberToRole.member_id)} to ${k.AddMemberToRole.role}`;
   if (typeof k === "string") return k;
   return Object.keys(k || {})[0] || "Proposal";
 };
@@ -71,6 +74,8 @@ function DaoCard({ w, account, flash }) {
   const [receiver, setReceiver] = useState("");
   const [amount, setAmount] = useState("");
   const [why, setWhy] = useState("");
+  const [mode, setMode] = useState("spend"); // "spend" | "member"
+  const [member, setMember] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -85,11 +90,10 @@ function DaoCard({ w, account, flash }) {
     return () => clearInterval(t);
   }, [load]);
 
-  const isCouncil =
-    !!account &&
-    !!policy?.roles?.some(
-      (r) => Array.isArray(r.kind?.Group) && r.kind.Group.includes(account),
-    );
+  const councilMembers =
+    policy?.roles?.find((r) => r.name === "council")?.kind?.Group ?? [];
+  const isCouncil = !!account && councilMembers.includes(account);
+  const bondYocto = policy?.proposal_bond ?? "1000000000000000000000000";
 
   const run = async (fn, ok) => {
     if (!account) return w?.modal.show();
@@ -114,42 +118,105 @@ function DaoCard({ w, account, flash }) {
           description: why.trim() || "Community treasury spend",
           receiver: receiver.trim(),
           amountYocto: (BigInt(amount) * 10n ** 18n).toString(),
-          bond: policy?.proposal_bond ?? "100000000000000000000000",
+          bond: bondYocto,
         }),
       "Proposal submitted",
     );
   };
 
+  const proposeMember = () => {
+    const id = member.trim();
+    if (!/^[a-z0-9._-]{2,64}\.(testnet|near)$|^[0-9a-f]{64}$/.test(id))
+      return flash("Enter a valid NEAR account (e.g. friend.testnet)");
+    if (councilMembers.includes(id))
+      return flash("That account is already on the council");
+    run(
+      () =>
+        proposeAddMember(w.selector, {
+          description: why.trim() || `Add ${id} to the council`,
+          member: id,
+          bond: bondYocto,
+        }),
+      "Proposal submitted. The council must approve it.",
+    );
+  };
+
   return (
     <Card title="DAO proposals" className="mt-4">
-      <p className="mb-4 text-sm text-zinc-400">
-        Spending from the treasury needs a council vote. Council:{" "}
-        {isCouncil ? "you are a member" : "connect a council account to vote"}.
+      <p className="mb-3 text-sm text-zinc-400">
+        Anyone can submit a proposal; only the council votes. Spending from the
+        treasury and adding council members both need a council vote.{" "}
+        {isCouncil
+          ? "You are a council member."
+          : "Connect a council account to vote."}
       </p>
-      <div className="grid gap-2.5 md:grid-cols-[1fr_9rem_1.4fr_auto]">
-        <input
-          value={receiver}
-          onChange={(e) => setReceiver(e.target.value)}
-          placeholder="receiver.testnet"
-          className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
-        />
-        <input
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="SPUD amount"
-          inputMode="numeric"
-          className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
-        />
-        <input
-          value={why}
-          onChange={(e) => setWhy(e.target.value)}
-          placeholder="Why? (e.g. weekly prize)"
-          className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
-        />
-        <Btn onClick={propose} disabled={busy}>
-          Propose spend
+      {councilMembers.length > 0 && (
+        <p className="mb-4 break-all text-xs text-zinc-500">
+          Council ({councilMembers.length}): {councilMembers.join(", ")}
+        </p>
+      )}
+
+      <div className="mb-3 flex gap-2">
+        <Btn
+          ghost={mode !== "spend"}
+          onClick={() => setMode("spend")}
+          disabled={busy}
+        >
+          Spend SPUD
+        </Btn>
+        <Btn
+          ghost={mode !== "member"}
+          onClick={() => setMode("member")}
+          disabled={busy}
+        >
+          Add council member
         </Btn>
       </div>
+
+      {mode === "spend" ? (
+        <div className="grid gap-2.5 md:grid-cols-[1fr_9rem_1.4fr_auto]">
+          <input
+            value={receiver}
+            onChange={(e) => setReceiver(e.target.value)}
+            placeholder="receiver.testnet"
+            className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
+          />
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="SPUD amount"
+            inputMode="numeric"
+            className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
+          />
+          <input
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="Why? (e.g. weekly prize)"
+            className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
+          />
+          <Btn onClick={propose} disabled={busy}>
+            Propose spend
+          </Btn>
+        </div>
+      ) : (
+        <div className="grid gap-2.5 md:grid-cols-[1fr_1.4fr_auto]">
+          <input
+            value={member}
+            onChange={(e) => setMember(e.target.value)}
+            placeholder="newmember.testnet"
+            className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
+          />
+          <input
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="Why should they join?"
+            className="min-w-0 rounded-xl border border-line bg-[#0d0d14] px-3 py-2.5 outline-none focus:border-hot"
+          />
+          <Btn onClick={proposeMember} disabled={busy}>
+            Propose member
+          </Btn>
+        </div>
+      )}
       {policy && (
         <p className="mt-2 text-xs text-zinc-500">
           Proposal bond:{" "}
