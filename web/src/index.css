@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+body { @apply bg-ink text-zinc-100 antialiased; background-image: radial-gradient(900px 500px at 50% -10%, #2a1606, #0b0b10); min-height: 100vh; }
+@keyframes bob { 50% { transform: translateY(-8px) rotate(4deg); } }
+.bob { animation: bob 2s ease-in-out infinite; }
